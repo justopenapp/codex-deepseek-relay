@@ -119,6 +119,41 @@ try {
       converted.messages[0].content === "answer",
     "expected think tags to round-trip into reasoning_content",
   );
+
+  const convertedToolHistory = responsesToChatCompletions(
+    {
+      model: "deepseek-chat",
+      input: [
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "<think>\nplan\n</think>\n\n" }],
+        },
+        {
+          type: "function_call",
+          call_id: "call_1",
+          name: "exec_command",
+          arguments: "{\"cmd\":\"pwd\"}",
+        },
+        {
+          type: "function_call_output",
+          call_id: "call_1",
+          output: "ok",
+        },
+      ],
+    },
+    { deepseekModel: "deepseek-chat" },
+  );
+  assert(
+    convertedToolHistory.messages[0].role === "assistant" &&
+      convertedToolHistory.messages[0].reasoning_content === "plan" &&
+      convertedToolHistory.messages[0].tool_calls?.[0]?.id === "call_1",
+    "expected reasoning_content to be merged onto assistant tool call history",
+  );
+  assert(
+    convertedToolHistory.messages[1].role === "tool",
+    "expected tool output after merged assistant tool call history",
+  );
   assert(
     textEvents.some((event) => event.type === "response.completed"),
     "expected completed event",

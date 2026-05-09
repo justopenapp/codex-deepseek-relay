@@ -234,10 +234,7 @@ export function responsesToChatCompletions(requestBody, relayConfig = config) {
     messages.push({ role: "system", content: instructions });
   }
 
-  const inputItems = normalizeArray(requestBody.input);
-  for (const item of inputItems) {
-    appendInputItem(messages, item);
-  }
+  appendInputItems(messages, normalizeArray(requestBody.input));
 
   const tools = [];
   for (const tool of normalizeArray(requestBody.tools)) {
@@ -291,8 +288,17 @@ export function responsesToChatCompletions(requestBody, relayConfig = config) {
   return chatRequest;
 }
 
-function appendInputItem(messages, item) {
+function appendInputItems(messages, inputItems) {
+  const state = { pendingAssistantMessage: null };
+  for (const item of inputItems) {
+    appendInputItem(messages, item, state);
+  }
+  flushPendingAssistantMessage(messages, state);
+}
+
+function appendInputItem(messages, item, state) {
   if (typeof item === "string") {
+    flushPendingAssistantMessage(messages, state);
     messages.push({ role: "user", content: item });
     return;
   }
@@ -302,29 +308,35 @@ function appendInputItem(messages, item) {
   }
 
   if (item.type === "message") {
-    messages.push(responseMessageToChatMessage(item));
+    const message = responseMessageToChatMessage(item);
+    if (message.role === "assistant") {
+      flushPendingAssistantMessage(messages, state);
+      state.pendingAssistantMessage = message;
+    } else {
+      flushPendingAssistantMessage(messages, state);
+      messages.push(message);
+    }
     return;
   }
 
   if (item.type === "function_call") {
-    messages.push({
-      role: "assistant",
-      content: null,
-      tool_calls: [
-        {
-          id: item.call_id || item.id || `call_${randomId()}`,
-          type: "function",
-          function: {
-            name: item.name || "unknown_tool",
-            arguments: item.arguments || "",
-          },
-        },
-      ],
-    });
+    const assistantMessage =
+      state.pendingAssistantMessage ||
+      {
+        role: "assistant",
+        content: null,
+      };
+    assistantMessage.tool_calls ||= [];
+    assistantMessage.tool_calls.push(responseFunctionCallToChatToolCall(item));
+    if (!assistantMessage.content) {
+      assistantMessage.content = null;
+    }
+    state.pendingAssistantMessage = assistantMessage;
     return;
   }
 
   if (item.type === "function_call_output") {
+    flushPendingAssistantMessage(messages, state);
     messages.push({
       role: "tool",
       tool_call_id: item.call_id || item.id,
@@ -337,10 +349,30 @@ function appendInputItem(messages, item) {
     return;
   }
 
+  flushPendingAssistantMessage(messages, state);
   messages.push({
     role: "user",
     content: itemToText(item),
   });
+}
+
+function flushPendingAssistantMessage(messages, state) {
+  if (!state.pendingAssistantMessage) {
+    return;
+  }
+  messages.push(state.pendingAssistantMessage);
+  state.pendingAssistantMessage = null;
+}
+
+function responseFunctionCallToChatToolCall(item) {
+  return {
+    id: item.call_id || item.id || `call_${randomId()}`,
+    type: "function",
+    function: {
+      name: item.name || "unknown_tool",
+      arguments: item.arguments || "",
+    },
+  };
 }
 
 function chatCompletionToResponse(chatResponse, requestBody) {
