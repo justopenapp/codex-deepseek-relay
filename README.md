@@ -30,7 +30,7 @@ Add this to `~/.codex/config.toml`:
 
 ```toml
 model_provider = "deepseek-relay"
-model = "deepseek-chat"
+model = "deepseek-v4-pro"
 
 [model_providers.deepseek-relay]
 name = "DeepSeek Relay"
@@ -41,7 +41,7 @@ wire_api = "responses"
 Then start Codex:
 
 ```bash
-codex -m deepseek-chat
+codex -m deepseek-v4-pro
 ```
 
 ## Environment
@@ -50,8 +50,8 @@ codex -m deepseek-chat
 HOST=127.0.0.1
 PORT=8787
 DEEPSEEK_API_KEY=sk-your-deepseek-key
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
-DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-pro
 DEEPSEEK_STREAM_INCLUDE_USAGE=false
 DEEPSEEK_REASONING_OUTPUT=tagged
 DEBUG_DEEPSEEK=false
