@@ -1,0 +1,16 @@
+{
+  "name": "codex-deepseek-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAI Responses-compatible relay for Codex CLI backed by DeepSeek chat completions.",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node src/server.mjs",
+    "smoke": "node test/smoke.mjs",
+    "codex:smoke": "node test/codex-smoke.mjs"
+  }
+}
