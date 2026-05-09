@@ -7,7 +7,7 @@ const upstreamPort = 18766;
 const relayPort = 18767;
 
 const upstream = http.createServer((request, response) => {
-  if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+  if (request.method !== "POST" || request.url !== "/v2/chat/completions") {
     response.writeHead(404);
     response.end();
     return;
@@ -77,8 +77,10 @@ const relay = spawn(process.execPath, ["src/server.mjs"], {
     ...process.env,
     HOST: "127.0.0.1",
     PORT: String(relayPort),
-    DEEPSEEK_API_KEY: "sk-smoke",
-    DEEPSEEK_BASE_URL: `http://127.0.0.1:${upstreamPort}/v1`,
+    PROVIDER: "xfyun",
+    XFYUN_API_KEY: "sk-smoke",
+    XFYUN_BASE_URL: `http://127.0.0.1:${upstreamPort}/v2`,
+    XFYUN_MODEL: "astron-code-latest",
     LOG_LEVEL: "error",
   },
   stdio: ["ignore", "pipe", "pipe"],
@@ -116,6 +118,18 @@ try {
     converted.messages[0].reasoning_content === "why" &&
       converted.messages[0].content === "answer",
     "expected think tags to round-trip into reasoning_content",
+  );
+
+  const convertedProviderModel = responsesToChatCompletions(
+    {
+      model: "ignored-by-provider",
+      input: ["say hi"],
+    },
+    { provider: { model: "astron-code-latest", models: ["astron-code-latest"] } },
+  );
+  assert(
+    convertedProviderModel.model === "astron-code-latest",
+    "expected provider model to override request model",
   );
 
   const convertedToolHistory = responsesToChatCompletions(

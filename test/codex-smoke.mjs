@@ -39,6 +39,7 @@ const relay = spawn(process.execPath, ["src/server.mjs"], {
     ...process.env,
     HOST: "127.0.0.1",
     PORT: String(relayPort),
+    PROVIDER: "deepseek",
     DEEPSEEK_API_KEY: "sk-smoke",
     DEEPSEEK_BASE_URL: `http://127.0.0.1:${upstreamPort}/v1`,
     LOG_LEVEL: "error",

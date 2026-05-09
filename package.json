@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "OpenAI Responses-compatible relay for Codex CLI backed by DeepSeek chat completions.",
+  "description": "OpenAI Responses-compatible relay for Codex CLI backed by chat completions providers.",
   "engines": {
     "node": ">=20.0.0"
   },
