@@ -9,21 +9,18 @@ const projectRoot = resolve(__dirname, "..");
 loadDotEnv(resolve(projectRoot, ".env"));
 loadDotEnv(resolve(process.cwd(), ".env"));
 
-const provider = resolveProviderConfig(process.env);
-
 const config = {
   host: process.env.HOST || "127.0.0.1",
   port: parseInteger(process.env.PORT, 8787),
-  provider,
-  maxBodyBytes: parseInteger(process.env.MAX_BODY_BYTES, 20 * 1024 * 1024),
-  includeStreamUsage:
-    envFlag(process.env.UPSTREAM_STREAM_INCLUDE_USAGE) ||
-    envFlag(process.env.DEEPSEEK_STREAM_INCLUDE_USAGE),
-  reasoningOutput: normalizeReasoningOutput(
-    process.env.REASONING_OUTPUT || process.env.DEEPSEEK_REASONING_OUTPUT,
+  deepseekApiKey: process.env.DEEPSEEK_API_KEY || "",
+  deepseekBaseUrl: trimTrailingSlash(
+    process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1",
   ),
-  debugUpstream:
-    envFlag(process.env.DEBUG_UPSTREAM) || envFlag(process.env.DEBUG_DEEPSEEK),
+  deepseekModel: process.env.DEEPSEEK_MODEL || "",
+  maxBodyBytes: parseInteger(process.env.MAX_BODY_BYTES, 20 * 1024 * 1024),
+  includeStreamUsage: process.env.DEEPSEEK_STREAM_INCLUDE_USAGE === "true",
+  reasoningOutput: normalizeReasoningOutput(process.env.DEEPSEEK_REASONING_OUTPUT),
+  debugUpstream: process.env.DEBUG_DEEPSEEK === "true",
   logLevel: process.env.LOG_LEVEL || "info",
 };
 
@@ -45,11 +42,10 @@ if (isMainModule()) {
   });
 
   server.listen(config.port, config.host, () => {
-    log("info", "Codex provider relay listening", {
+    log("info", "Codex DeepSeek relay listening", {
       url: `http://${config.host}:${config.port}`,
-      provider: config.provider.id,
-      upstream: config.provider.baseUrl,
-      model: config.provider.model || "<request model>",
+      upstream: config.deepseekBaseUrl,
+      model: config.deepseekModel || "<request model>",
     });
   });
 }
@@ -60,8 +56,8 @@ async function handleRequest(request, response) {
   if (request.method === "GET" && url.pathname === "/health") {
     sendJson(response, 200, {
       ok: true,
-      provider: config.provider.id,
-      model: config.provider.model || null,
+      provider: "deepseek",
+      model: config.deepseekModel || null,
     });
     return;
   }
@@ -69,7 +65,11 @@ async function handleRequest(request, response) {
   if (request.method === "GET" && matchesEndpoint(url.pathname, "models")) {
     sendJson(response, 200, {
       object: "list",
-      data: providerModelObjects(config.provider),
+      data: [
+        modelObject(config.deepseekModel || "deepseek-chat"),
+        modelObject("deepseek-chat"),
+        modelObject("deepseek-reasoner"),
+      ],
     });
     return;
   }
@@ -84,12 +84,10 @@ async function handleRequest(request, response) {
     return;
   }
 
-  if (!config.provider.apiKey) {
+  if (!config.deepseekApiKey) {
     sendJson(response, 500, {
       error: {
-        message:
-          `${config.provider.apiKeyEnv} is not configured for the ` +
-          `${config.provider.displayName} provider.`,
+        message: "DEEPSEEK_API_KEY is not configured for the relay.",
         type: "configuration_error",
       },
     });
@@ -128,7 +126,7 @@ async function handleRequest(request, response) {
 async function handleNonStreamingResponse(response, responsesRequest, chatRequest) {
   const url = upstreamUrl("/chat/completions");
   const body = { ...chatRequest, stream: false };
-  debugUpstreamRequest("non-stream", url, body);
+  debugDeepSeekRequest("non-stream", url, body);
 
   const upstreamResponse = await fetch(url, {
     method: "POST",
@@ -136,7 +134,7 @@ async function handleNonStreamingResponse(response, responsesRequest, chatReques
     body: JSON.stringify(body),
   });
 
-  debugUpstreamResponseHeaders("non-stream", upstreamResponse);
+  debugDeepSeekResponseHeaders("non-stream", upstreamResponse);
 
   if (!upstreamResponse.ok) {
     await proxyUpstreamError(response, upstreamResponse);
@@ -144,7 +142,7 @@ async function handleNonStreamingResponse(response, responsesRequest, chatReques
   }
 
   const chatResponse = await upstreamResponse.json();
-  debugUpstreamResponse("non-stream", chatResponse);
+  debugDeepSeekResponse("non-stream", chatResponse);
   const converted = chatCompletionToResponse(chatResponse, responsesRequest);
   sendJson(response, 200, converted);
 }
@@ -167,7 +165,7 @@ async function handleStreamingResponse(
   }
 
   const url = upstreamUrl("/chat/completions");
-  debugUpstreamRequest("stream", url, upstreamBody);
+  debugDeepSeekRequest("stream", url, upstreamBody);
 
   const upstreamResponse = await fetch(url, {
     method: "POST",
@@ -176,7 +174,7 @@ async function handleStreamingResponse(
     signal: abortController.signal,
   });
 
-  debugUpstreamResponseHeaders("stream", upstreamResponse);
+  debugDeepSeekResponseHeaders("stream", upstreamResponse);
 
   if (!upstreamResponse.ok) {
     await proxyUpstreamError(response, upstreamResponse);
@@ -202,7 +200,7 @@ async function handleStreamingResponse(
       if (!chunk) {
         continue;
       }
-      debugUpstreamResponse("stream-chunk", chunk);
+      debugDeepSeekResponse("stream-chunk", chunk);
       encoder.consumeChatChunk(chunk);
     }
     encoder.completed();
@@ -248,13 +246,13 @@ export function responsesToChatCompletions(requestBody, relayConfig = config) {
     messages.push({
       role: "system",
       content:
-        `The following non-function Responses API tools are not available through this relay: ` +
+        `The following non-function Responses API tools are not available through this DeepSeek relay: ` +
         `${[...new Set(unavailableTools)].join(", ")}. Use only the provided function tools.`,
     });
   }
 
   const chatRequest = {
-    model: selectChatModel(relayConfig, requestBody.model),
+    model: relayConfig.deepseekModel || requestBody.model || "deepseek-chat",
     messages,
     stream: requestBody.stream !== false,
   };
@@ -921,7 +919,7 @@ async function readJsonBody(request, maxBytes) {
 async function proxyUpstreamError(response, upstreamResponse) {
   const body = await upstreamResponse.text();
   const parsed = safeJsonParse(body);
-  debugUpstreamResponse("error", parsed || body);
+  debugDeepSeekResponse("error", parsed || body);
   sendJson(response, upstreamResponse.status, {
     error: parsed?.error || {
       message: body || upstreamResponse.statusText,
@@ -931,23 +929,22 @@ async function proxyUpstreamError(response, upstreamResponse) {
 }
 
 function upstreamUrl(pathname) {
-  return `${config.provider.baseUrl}${pathname}`;
+  return `${config.deepseekBaseUrl}${pathname}`;
 }
 
 function upstreamHeaders(stream) {
   return {
-    authorization: `Bearer ${config.provider.apiKey}`,
+    authorization: `Bearer ${config.deepseekApiKey}`,
     "content-type": "application/json",
     accept: stream ? "text/event-stream" : "application/json",
   };
 }
 
-function debugUpstreamRequest(kind, url, body) {
+function debugDeepSeekRequest(kind, url, body) {
   if (!config.debugUpstream) {
     return;
   }
-  log("info", `Upstream request ${kind}`, {
-    provider: config.provider.id,
+  log("info", `DeepSeek request ${kind}`, {
     url,
     model: body.model,
     stream: body.stream,
@@ -956,23 +953,22 @@ function debugUpstreamRequest(kind, url, body) {
   });
 }
 
-function debugUpstreamResponseHeaders(kind, upstreamResponse) {
+function debugDeepSeekResponseHeaders(kind, upstreamResponse) {
   if (!config.debugUpstream) {
     return;
   }
-  log("info", `Upstream response headers ${kind}`, {
-    provider: config.provider.id,
+  log("info", `DeepSeek response headers ${kind}`, {
     status: upstreamResponse.status,
     statusText: upstreamResponse.statusText,
     contentType: upstreamResponse.headers.get("content-type"),
   });
 }
 
-function debugUpstreamResponse(kind, payload) {
+function debugDeepSeekResponse(kind, payload) {
   if (!config.debugUpstream) {
     return;
   }
-  log("info", `Upstream response ${kind}`, truncateForLog(payload, 12000));
+  log("info", `DeepSeek response ${kind}`, truncateForLog(payload, 12000));
 }
 
 function truncateForLog(payload, maxLength) {
@@ -992,87 +988,13 @@ function matchesEndpoint(pathname, endpoint) {
   return pathname === `/${endpoint}` || pathname === `/v1/${endpoint}`;
 }
 
-function selectChatModel(relayConfig, requestModel) {
-  return (
-    relayConfig.provider?.model ||
-    relayConfig.model ||
-    relayConfig.deepseekModel ||
-    requestModel ||
-    relayConfig.provider?.models?.[0] ||
-    "deepseek-chat"
-  );
-}
-
-function providerModelObjects(providerConfig) {
-  const ids = [...new Set([providerConfig.model, ...providerConfig.models].filter(Boolean))];
-  return ids.map((id) => modelObject(id, providerConfig.ownedBy));
-}
-
-function modelObject(id, ownedBy = "upstream") {
+function modelObject(id) {
   return {
     id,
     object: "model",
     created: 0,
-    owned_by: ownedBy,
+    owned_by: "deepseek",
   };
-}
-
-function resolveProviderConfig(env) {
-  const providerId = normalizeProviderId(env.PROVIDER || env.UPSTREAM_PROVIDER || "deepseek");
-  if (providerId === "deepseek") {
-    return {
-      id: "deepseek",
-      displayName: "DeepSeek",
-      apiKey: env.DEEPSEEK_API_KEY || "",
-      apiKeyEnv: "DEEPSEEK_API_KEY",
-      baseUrl: trimTrailingSlash(env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1"),
-      model: env.DEEPSEEK_MODEL || "",
-      models: [env.DEEPSEEK_MODEL, "deepseek-chat", "deepseek-reasoner"].filter(Boolean),
-      ownedBy: "deepseek",
-    };
-  }
-
-  if (providerId === "xfyun") {
-    const apiKey = env.XFYUN_API_KEY || env.XUNFEI_API_KEY || "";
-    const model = env.XFYUN_MODEL || env.XUNFEI_MODEL || "astron-code-latest";
-    return {
-      id: "xfyun",
-      displayName: "讯飞星辰",
-      apiKey,
-      apiKeyEnv: env.XUNFEI_API_KEY && !env.XFYUN_API_KEY ? "XUNFEI_API_KEY" : "XFYUN_API_KEY",
-      baseUrl: trimTrailingSlash(
-        env.XFYUN_BASE_URL ||
-          env.XUNFEI_BASE_URL ||
-          "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2",
-      ),
-      model,
-      models: [model],
-      ownedBy: "xfyun",
-    };
-  }
-
-  throw new Error(
-    `Unsupported PROVIDER "${providerId}". Supported providers: deepseek, xfyun.`,
-  );
-}
-
-function normalizeProviderId(value) {
-  const providerId = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[_\s]+/g, "-");
-  if (
-    providerId === "xfyun" ||
-    providerId === "xunfei" ||
-    providerId === "iflytek" ||
-    providerId === "astron"
-  ) {
-    return "xfyun";
-  }
-  if (providerId === "deepseek" || providerId === "deepseek-relay") {
-    return "deepseek";
-  }
-  return providerId;
 }
 
 function copyIfPresent(source, target, key) {
@@ -1100,11 +1022,6 @@ function trimTrailingSlash(value) {
 function parseInteger(value, fallback) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function envFlag(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  return normalized === "true" || normalized === "1" || normalized === "yes";
 }
 
 function normalizeReasoningOutput(value) {
