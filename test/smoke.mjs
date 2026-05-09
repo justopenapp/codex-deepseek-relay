@@ -5,7 +5,6 @@ import { responsesToChatCompletions } from "../src/server.mjs";
 
 const upstreamPort = 18766;
 const relayPort = 18767;
-const relayToken = "smoke-relay-token";
 
 const upstream = http.createServer((request, response) => {
   if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
@@ -80,7 +79,6 @@ const relay = spawn(process.execPath, ["src/server.mjs"], {
     PORT: String(relayPort),
     DEEPSEEK_API_KEY: "sk-smoke",
     DEEPSEEK_BASE_URL: `http://127.0.0.1:${upstreamPort}/v1`,
-    CODEX_RELAY_API_KEY: relayToken,
     LOG_LEVEL: "error",
   },
   stdio: ["ignore", "pipe", "pipe"],
@@ -195,7 +193,6 @@ async function requestResponses(prompt, tools) {
   const response = await fetch(`http://127.0.0.1:${relayPort}/v1/responses`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${relayToken}`,
       "content-type": "application/json",
       accept: "text/event-stream",
     },

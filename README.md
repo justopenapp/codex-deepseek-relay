@@ -36,19 +36,13 @@ model = "deepseek-chat"
 name = "DeepSeek Relay"
 base_url = "http://127.0.0.1:8787/v1"
 wire_api = "responses"
-env_key = "CODEX_RELAY_API_KEY"
 ```
 
-Then set the local relay token before starting Codex:
+Then start Codex:
 
 ```bash
-export CODEX_RELAY_API_KEY=local-relay-token
 codex -m deepseek-chat
 ```
-
-Use the same `CODEX_RELAY_API_KEY` value in the relay `.env` if you want inbound
-requests to be checked. Leave it unset in the relay `.env` to accept local
-requests without checking Codex's bearer token.
 
 ## Environment
 
@@ -58,7 +52,6 @@ PORT=8787
 DEEPSEEK_API_KEY=sk-your-deepseek-key
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 DEEPSEEK_MODEL=deepseek-chat
-CODEX_RELAY_API_KEY=local-relay-token
 DEEPSEEK_STREAM_INCLUDE_USAGE=false
 DEEPSEEK_REASONING_OUTPUT=tagged
 DEBUG_DEEPSEEK=false

@@ -17,7 +17,6 @@ const config = {
     process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1",
   ),
   deepseekModel: process.env.DEEPSEEK_MODEL || "",
-  relayApiKey: process.env.RELAY_API_KEY || process.env.CODEX_RELAY_API_KEY || "",
   maxBodyBytes: parseInteger(process.env.MAX_BODY_BYTES, 20 * 1024 * 1024),
   includeStreamUsage: process.env.DEEPSEEK_STREAM_INCLUDE_USAGE === "true",
   reasoningOutput: normalizeReasoningOutput(process.env.DEEPSEEK_REASONING_OUTPUT),
@@ -80,16 +79,6 @@ async function handleRequest(request, response) {
       error: {
         message: "Use POST /v1/responses for Codex CLI requests.",
         type: "not_found",
-      },
-    });
-    return;
-  }
-
-  if (config.relayApiKey && !isAuthorized(request, config.relayApiKey)) {
-    sendJson(response, 401, {
-      error: {
-        message: "Invalid relay bearer token.",
-        type: "unauthorized",
       },
     });
     return;
@@ -997,12 +986,6 @@ function sendJson(response, statusCode, payload) {
 
 function matchesEndpoint(pathname, endpoint) {
   return pathname === `/${endpoint}` || pathname === `/v1/${endpoint}`;
-}
-
-function isAuthorized(request, expectedToken) {
-  const header = request.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
-  return token === expectedToken;
 }
 
 function modelObject(id) {
